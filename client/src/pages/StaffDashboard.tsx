@@ -102,7 +102,10 @@ function StaffDashboard() {
           <h1>Demo order<br /><em>dashboard.</em></h1>
           <p>Sign in with the staff password stored privately in the Vercel environment settings. This dashboard only manages sample orders.</p>
           <form onSubmit={signIn}>
-            <label className="order-field">STAFF PASSWORD<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+            <label className="order-field">
+              STAFF PASSWORD <small style={{ color: "#aa8a55", marginLeft: "6px" }}>(Demo password: AdminSobha2026!)</small>
+              <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="AdminSobha2026!" autoComplete="current-password" required />
+            </label>
             {error && <p className="order-feedback order-feedback-error" role="alert">{error}</p>}
             <button className="button button-dark" type="submit" disabled={loading}><LockKeyhole size={14} />{loading ? "CHECKING…" : "OPEN DASHBOARD"}<ArrowUpRight size={14} /></button>
           </form>

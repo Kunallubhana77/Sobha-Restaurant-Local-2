@@ -12,6 +12,10 @@ import {
   Menu as MenuIcon,
   Phone,
   X,
+  Bell,
+  Sparkles,
+  RotateCcw,
+  Utensils,
 } from "lucide-react";
 import { RestaurantMap } from "@/components/RestaurantMap";
 import { restaurant, menuDraft, signaturePlates, foodCategories } from "@/siteContent";
@@ -95,9 +99,104 @@ function Home() {
   };
 
   const closeMenu = () => setMenuOpen(false);
-  const submitReservation = (event: FormEvent<HTMLFormElement>) => {
+
+  type BookingData = {
+    id: string;
+    customerName: string;
+    tableNumber: string;
+    guests: number;
+    estimatedWaitSeconds: number;
+    status: "waiting" | "ready";
+  };
+  const [booking, setBooking] = useState<BookingData | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(45);
+  const [bookingLoading, setBookingLoading] = useState(false);
+  const [bookingError, setBookingError] = useState("");
+
+  const playTableChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 1.2);
+    } catch {
+      // AudioContext not allowed without interaction or not supported
+    }
+  };
+
+  useEffect(() => {
+    if (!booking || booking.status !== "waiting") return;
+    const interval = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          playTableChime();
+          setBooking((b) => (b ? { ...b, status: "ready" } : null));
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [booking?.id, booking?.status]);
+
+  const fastForwardTable = () => {
+    playTableChime();
+    setRemainingSeconds(0);
+    setBooking((prev) => (prev ? { ...prev, status: "ready" } : null));
+  };
+
+  const resetBooking = () => {
+    setBooking(null);
+    setBookingError("");
+    setSubmitted(false);
+  };
+
+  const submitReservation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setSubmitted(true);
+    setBookingError("");
+    setBookingLoading(true);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const payload = {
+      name: formData.get("name") || "Rahul Sharma",
+      email: formData.get("email") || "rahul@example.com",
+      phone: formData.get("phone") || "+91 8369994226",
+      guests: Number(formData.get("guests")) || 2,
+      date: formData.get("date") || new Date().toISOString().slice(0, 10),
+      time: formData.get("time") || "08:00 PM",
+      occasion: formData.get("occasion") || "Dinner",
+      message: formData.get("message") || "",
+    };
+    try {
+      const res = await fetch("/api?action=table-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.booking) {
+        setBooking(data.booking);
+        setRemainingSeconds(data.booking.estimatedWaitSeconds || 45);
+        setBookingError("");
+        setSubmitted(true);
+      } else {
+        setBookingError(data.error || "Could not reserve table for this time.");
+      }
+    } catch {
+      setBookingError("Server connection error. Please try again.");
+    } finally {
+      setBookingLoading(false);
+    }
   };
 
   return (
@@ -260,31 +359,185 @@ function Home() {
         <div className="reservation-heading" data-reveal>
           <SectionLabel>YOUR TABLE AWAITS</SectionLabel>
           <h2>Make room for<br /><em>a good evening.</em></h2>
-          <p>Share a few details and we’ll help you plan a visit to Sobha.</p>
-          <div className="booking-reminder"><CalendarDays size={16} /><span>For now, this form is a preview only. It does not send or confirm a reservation.</span></div>
+          <p>Book a table with instant live waiting time estimation and automated table readiness alerts.</p>
+          <div className="booking-reminder">
+            <CalendarDays size={16} />
+            <span>Live Table Demo: Real-time waiting countdown & ready alert active.</span>
+          </div>
         </div>
-        <form className="reservation-form" onSubmit={submitReservation} data-reveal>
-          <div className="form-heading"><span>01 — YOUR VISIT</span><span>ALL FIELDS MARKED * ARE REQUIRED</span></div>
-          <div className="form-row form-row-three">
-            <label>DATE *<input name="date" type="date" min={new Date().toISOString().slice(0, 10)} required /></label>
-            <label>TIME *<select name="time" defaultValue="" required><option value="" disabled>Select a time</option>{timeOptions.map((time) => <option key={time} value={time}>{time}</option>)}</select></label>
-            <label>GUESTS *<select name="guests" defaultValue="2" required>{[1, 2, 3, 4, 5, 6, 7, 8].map((count) => <option key={count} value={count}>{count} {count === 1 ? "guest" : "guests"}{count === 8 ? "+" : ""}</option>)}</select></label>
+
+        {booking ? (
+          <div className="table-waiting-card">
+            <div className="table-waiting-header">
+              <div>
+                <span className="eyebrow" style={{ fontSize: "9px" }}>RESERVATION CONFIRMED</span>
+                <h3 style={{ margin: "4px 0 0", fontFamily: "var(--serif)", fontSize: "24px", color: "#1c1a17" }}>
+                  {booking.tableNumber} Reserved
+                </h3>
+              </div>
+              <span className={`table-badge ${booking.status === "ready" ? "is-ready" : ""}`}>
+                {booking.status === "ready" ? (
+                  <>
+                    <Sparkles size={13} /> TABLE READY!
+                  </>
+                ) : (
+                  <>
+                    <Clock3 size={13} /> ESTIMATED WAIT
+                  </>
+                )}
+              </span>
+            </div>
+
+            <div className="table-booking-info">
+              <div>
+                <small>Guest Name</small>
+                <strong>{booking.customerName}</strong>
+              </div>
+              <div>
+                <small>Party Size</small>
+                <strong>{booking.guests} Guests</strong>
+              </div>
+              <div>
+                <small>Booking ID</small>
+                <strong>{booking.id}</strong>
+              </div>
+              <div>
+                <small>Location</small>
+                <strong>{booking.tableNumber} (Main Dining Hall)</strong>
+              </div>
+            </div>
+
+            {booking.status === "ready" ? (
+              <div className="table-ready-banner">
+                <Bell size={28} style={{ margin: "0 auto 8px" }} />
+                <h3>🎉 YOUR TABLE IS READY!</h3>
+                <p style={{ margin: "6px 0 14px", fontSize: "11px" }}>
+                  Please proceed to <strong>{booking.tableNumber}</strong>. The hostess is ready to welcome you and seat your party.
+                </p>
+                <a
+                  href="#order-demo"
+                  className="button button-dark"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "10px 18px", fontSize: "10px" }}
+                >
+                  <Utensils size={13} /> ORDER FOOD TO THIS TABLE <ArrowUpRight size={13} />
+                </a>
+              </div>
+            ) : (
+              <div className="table-timer-shell">
+                <small style={{ color: "#8c8578", letterSpacing: "0.1em", fontSize: "9px", textTransform: "uppercase" }}>
+                  ⏳ Current Table Prep / Cleaning Wait Time
+                </small>
+                <div className="table-timer-digits">
+                  00:{remainingSeconds.toString().padStart(2, "0")}
+                </div>
+                <p style={{ margin: 0, fontSize: "10px", color: "#6a645b" }}>
+                  Your table is being prepared. This screen will automatically notify you the moment it is ready!
+                </p>
+                <div className="table-progress-bar">
+                  <div
+                    className="table-progress-fill"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, ((45 - remainingSeconds) / 45) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="demo-controls-row">
+              {booking.status !== "ready" && (
+                <button
+                  type="button"
+                  className="demo-chip-btn"
+                  onClick={fastForwardTable}
+                  title="Skip countdown for demo presentation"
+                >
+                  ⚡ Fast-Forward Waiting Time (Demo)
+                </button>
+              )}
+              <button
+                type="button"
+                className="demo-chip-btn"
+                style={{ background: "#f0ebe1", color: "#5d5445" }}
+                onClick={resetBooking}
+              >
+                <RotateCcw size={11} /> Book Another Table
+              </button>
+            </div>
           </div>
-          <div className="form-row form-row-two">
-            <label>YOUR NAME *<input name="name" type="text" placeholder="Name for the table" autoComplete="name" required /></label>
-            <label>EMAIL ADDRESS *<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label>
-          </div>
-          <div className="form-row form-row-two">
-            <label>PHONE NUMBER<input name="phone" type="tel" placeholder="Your best contact number" autoComplete="tel" /></label>
-            <label>OCCASION<select name="occasion" defaultValue=""><option value="">Just a lovely evening</option><option>Birthday</option><option>Anniversary</option><option>Family gathering</option><option>Business dinner</option><option>Other celebration</option></select></label>
-          </div>
-          <label className="message-label">A NOTE FOR US<textarea name="message" rows={3} placeholder="Dietary needs, a special occasion, or anything else we should know." /></label>
-          <div className="form-submit-row">
-            <button className="button button-dark" type="submit">PREPARE MY REQUEST <ArrowUpRight size={14} /></button>
-            <span>NO PAYMENT REQUIRED</span>
-          </div>
-          {submitted && <p className="form-feedback" role="status"><Check size={16} /> Your details are ready. No booking has been sent or confirmed; please contact Sobha directly once the visit details are added.</p>}
-        </form>
+        ) : (
+          <form className="reservation-form" onSubmit={submitReservation}>
+            <div className="form-heading">
+              <span>01 — YOUR VISIT</span>
+              <span>ALL FIELDS MARKED * ARE REQUIRED</span>
+            </div>
+            <div className="form-row form-row-three">
+              <label>
+                DATE *
+                <input name="date" type="date" defaultValue={new Date().toISOString().slice(0, 10)} min={new Date().toISOString().slice(0, 10)} required />
+              </label>
+              <label>
+                TIME *
+                <select name="time" defaultValue="08:00 PM" required>
+                  <option value="" disabled>Select a time</option>
+                  {timeOptions.map((time) => <option key={time} value={time}>{time}</option>)}
+                </select>
+              </label>
+              <label>
+                GUESTS *
+                <select name="guests" defaultValue="2" required>
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((count) => (
+                    <option key={count} value={count}>
+                      {count} {count === 1 ? "guest" : "guests"}{count === 8 ? "+" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="form-row form-row-two">
+              <label>
+                YOUR NAME *
+                <input name="name" type="text" defaultValue="Rahul Sharma" placeholder="Name for the table" autoComplete="name" required />
+              </label>
+              <label>
+                EMAIL ADDRESS *
+                <input name="email" type="email" defaultValue="rahul@example.com" placeholder="you@example.com" autoComplete="email" required />
+              </label>
+            </div>
+            <div className="form-row form-row-two">
+              <label>
+                PHONE NUMBER
+                <input name="phone" type="tel" defaultValue="+91 8369994226" placeholder="Your best contact number" autoComplete="tel" />
+              </label>
+              <label>
+                OCCASION
+                <select name="occasion" defaultValue="Dinner">
+                  <option value="">Just a lovely evening</option>
+                  <option>Birthday</option>
+                  <option>Anniversary</option>
+                  <option>Family gathering</option>
+                  <option>Business dinner</option>
+                  <option>Other celebration</option>
+                </select>
+              </label>
+            </div>
+            <label className="message-label">
+              A NOTE FOR US
+              <textarea name="message" rows={2} defaultValue="Window view table preferred, celebrating family dinner." placeholder="Dietary needs, a special occasion, or anything else we should know." />
+            </label>
+            {bookingError && (
+              <p className="order-feedback order-feedback-error" role="alert" style={{ margin: "14px 0 0" }}>
+                {bookingError}
+              </p>
+            )}
+            <div className="form-submit-row">
+              <button className="button button-dark" type="submit" disabled={bookingLoading} style={{ padding: "14px 24px", fontSize: "11px" }}>
+                {bookingLoading ? "RESERVING TABLE…" : "RESERVE TABLE & START LIVE COUNTDOWN ⏱️"} <ArrowUpRight size={14} />
+              </button>
+              <span style={{ fontSize: "9px" }}>INSTANT 45s LIVE DEMO</span>
+            </div>
+          </form>
+        )}
       </section>
 
       <section className="visit-section section-ink" id="visit">
