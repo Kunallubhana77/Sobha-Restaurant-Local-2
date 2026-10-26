@@ -190,7 +190,13 @@ function Home() {
         setBookingError("");
         setSubmitted(true);
       } else {
-        setBookingError(data.error || "Could not reserve table for this time.");
+        const errorMsg =
+          typeof data?.error === "string"
+            ? data.error
+            : data?.error?.message ||
+              data?.message ||
+              "Could not reserve table for this time.";
+        setBookingError(errorMsg);
       }
     } catch {
       setBookingError("Server connection error. Please try again.");

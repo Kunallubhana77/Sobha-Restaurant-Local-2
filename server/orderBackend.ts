@@ -12,19 +12,42 @@ const MAX_ITEM_QUANTITY = 20;
 const MAX_ORDER_TOTAL_RUPEES = 2_000_000;
 const ORDER_STATUSES_LIST = ORDER_STATUSES.map(({ id }) => id) as OrderStatus[];
 
-const DATA_DIR = path.resolve(process.cwd(), "data");
+const IS_VERCEL = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const DATA_DIR = IS_VERCEL ? path.resolve("/tmp", "sobha_data") : path.resolve(process.cwd(), "data");
 const ORDERS_FILE = path.join(DATA_DIR, "orders.json");
 const BOOKINGS_FILE = path.join(DATA_DIR, "table_bookings.json");
 
+let memoryOrders: OrderRecord[] = [];
+let memoryBookings: TableBooking[] = [];
+let isInitialized = false;
+
 function ensureDataFiles() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(ORDERS_FILE)) {
-    fs.writeFileSync(ORDERS_FILE, "[]", "utf-8");
-  }
-  if (!fs.existsSync(BOOKINGS_FILE)) {
-    fs.writeFileSync(BOOKINGS_FILE, "[]", "utf-8");
+  if (isInitialized) return;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    // If on Vercel and /tmp files don't exist yet, seed them from bundled data/
+    if (IS_VERCEL) {
+      const seedOrdersPath = path.resolve(process.cwd(), "data", "orders.json");
+      const seedBookingsPath = path.resolve(process.cwd(), "data", "table_bookings.json");
+      if (!fs.existsSync(ORDERS_FILE) && fs.existsSync(seedOrdersPath)) {
+        try { fs.copyFileSync(seedOrdersPath, ORDERS_FILE); } catch {}
+      }
+      if (!fs.existsSync(BOOKINGS_FILE) && fs.existsSync(seedBookingsPath)) {
+        try { fs.copyFileSync(seedBookingsPath, BOOKINGS_FILE); } catch {}
+      }
+    }
+    if (!fs.existsSync(ORDERS_FILE)) {
+      fs.writeFileSync(ORDERS_FILE, "[]", "utf-8");
+    }
+    if (!fs.existsSync(BOOKINGS_FILE)) {
+      fs.writeFileSync(BOOKINGS_FILE, "[]", "utf-8");
+    }
+    isInitialized = true;
+  } catch (err) {
+    console.warn("Could not initialize file storage directory, using memory store:", err);
+    isInitialized = true;
   }
 }
 
@@ -69,31 +92,81 @@ export type TableBooking = {
 function readOrders(): OrderRecord[] {
   ensureDataFiles();
   try {
-    const raw = fs.readFileSync(ORDERS_FILE, "utf-8");
-    return JSON.parse(raw) as OrderRecord[];
-  } catch {
-    return [];
+    if (fs.existsSync(ORDERS_FILE)) {
+      const raw = fs.readFileSync(ORDERS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        memoryOrders = parsed;
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn("Error reading orders file:", err);
   }
+  if (memoryOrders.length === 0) {
+    try {
+      const seedOrdersPath = path.resolve(process.cwd(), "data", "orders.json");
+      if (fs.existsSync(seedOrdersPath)) {
+        const raw = fs.readFileSync(seedOrdersPath, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          memoryOrders = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return memoryOrders;
 }
 
 function saveOrders(orders: OrderRecord[]) {
+  memoryOrders = orders;
   ensureDataFiles();
-  fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(ORDERS_FILE, JSON.stringify(orders, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Disk save failed on serverless, stored in memory:", err);
+  }
 }
 
 function readBookings(): TableBooking[] {
   ensureDataFiles();
   try {
-    const raw = fs.readFileSync(BOOKINGS_FILE, "utf-8");
-    return JSON.parse(raw) as TableBooking[];
-  } catch {
-    return [];
+    if (fs.existsSync(BOOKINGS_FILE)) {
+      const raw = fs.readFileSync(BOOKINGS_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        memoryBookings = parsed;
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn("Error reading bookings file:", err);
   }
+  if (memoryBookings.length === 0) {
+    try {
+      const seedBookingsPath = path.resolve(process.cwd(), "data", "table_bookings.json");
+      if (fs.existsSync(seedBookingsPath)) {
+        const raw = fs.readFileSync(seedBookingsPath, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          memoryBookings = parsed;
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+  return memoryBookings;
 }
 
 function saveBookings(bookings: TableBooking[]) {
+  memoryBookings = bookings;
   ensureDataFiles();
-  fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2), "utf-8");
+  try {
+    fs.writeFileSync(BOOKINGS_FILE, JSON.stringify(bookings, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Disk save failed on serverless, stored in memory:", err);
+  }
 }
 
 export function getHealth() {

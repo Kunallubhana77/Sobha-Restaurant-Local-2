@@ -99,13 +99,22 @@ function DemoOrderSection() {
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ demoCode, customerName, deliveryAddress, notes, items: selectedItems }),
       });
-      const data = await response.json() as OrderReply;
-      if (!response.ok || !data.success) throw new Error(data.error || "Could not place the demo order.");
-      if (data.order) {
+      const data = (await response.json().catch(() => null)) as OrderReply | null;
+      if (!response.ok || !data?.success) {
+        let msg = "Could not place the demo order.";
+        if (data?.error) {
+          msg = typeof data.error === "string" ? data.error : (data.error as any).message || JSON.stringify(data.error);
+        } else if ((data as any)?.message) {
+          msg = (data as any).message;
+        }
+        throw new Error(msg);
+      }
+      if (data?.order) {
         setActiveOrder(data.order);
       }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Order request failed. Please try again.");
+    } catch (caught: any) {
+      const errorMsg = caught instanceof Error ? caught.message : String(caught);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
